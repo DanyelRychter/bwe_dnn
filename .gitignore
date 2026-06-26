@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Editierbare Installation
+bwe.egg-info/
+
+# Lokale Daten / Caches (liegen ohnehin außerhalb des Repos)
+bwe_data/
+*.wav
+data_cache/
+
+# Notebook-Outputs beim Export
+notebooks/*.html
+
+# Modelle / Checkpoints (kommen in späteren Phasen, gehören nicht ins Repo)
+checkpoints/
+*.keras
+*.h5

@@ -1,0 +1,14 @@
+# Phase-A-Abhängigkeiten (Deep-Learning-Abschlussprojekt BWE)
+# Installation ins bestehende venv:
+#   ..\..\venv\Scripts\python.exe -m pip install -r requirements.txt
+#   ..\..\venv\Scripts\python.exe -m pip install -e .
+tensorflow==2.21.*
+numpy
+scipy
+librosa
+soundfile
+soxr
+matplotlib
+pytest
+# 'musdb' wird NICHT benötigt (zieht stempeg/ffmpeg nach); der kanonische Split
+# ist in bwe/data/splits.py eigenständig repliziert.

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bwe"
+version = "0.1.0"
+description = "Bandwidth Extension für Musik (Deep-Learning-Abschlussprojekt)"
+requires-python = ">=3.10"
+dependencies = [
+    "tensorflow==2.21.*",
+    "numpy",
+    "scipy",
+    "librosa",
+    "soundfile",
+    "soxr",
+    "matplotlib",
+]
+# Hinweis: 'musdb' wird NICHT als Abhängigkeit geführt — es zieht stempeg/ffmpeg
+# nach. Der kanonische Split ist in bwe/data/splits.py eigenständig repliziert.
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["bwe*"]
+
+[tool.pytest.ini_options]
+testpaths = ["bwe/tests"]
+# TensorFlow/autograph erzeugen unter Python 3.13 viele DeprecationWarnings (gast)
+# — nicht aus unserem Code; für saubere Ausgabe ausblenden.
+filterwarnings = ["ignore::DeprecationWarning"]
