@@ -87,7 +87,15 @@ def _make_loader(tracks: list[TrackInfo], augment: bool, cutoff_bins: list[int])
 # Wellenform → Modell-Tensoren (TF-Graph)
 # --------------------------------------------------------------------------- #
 def waveform_to_tensors(target_wave: tf.Tensor, cutoff_bin=cfg.CUTOFF_BIN):
-    """Vollband-Target-Wellenform → ``(input_spec[512,T,3], target_spec[512,T,2])``.
+    """Vollband-Target-Wellenform → modellfertige Spektrogramm-**Tensoren**
+    ``(input_spec[512, T, 3], target_spec[512, T, 2])``.
+
+    „Tensor" = ``tf.Tensor``: das Array-Format, mit dem TensorFlow rechnet (wie ein
+    NumPy-Array, aber im TF-Graphen — GPU-fähig und differenzierbar). Wir arbeiten
+    mit TF-Tensoren, weil die ganze Kette (``tf.signal``-STFT, Kompression, Copy-Up)
+    und später das U-Net TF-Operationen sind und im Training Gradienten durch sie
+    zurückfließen müssen. (Die Roh-Wellenform kommt als NumPy aus ``soundfile`` und
+    wird beim Eintritt in den Graphen zu einem Tensor.)
 
     ``cutoff_bin`` darf ein Skalar-Tensor sein (variabler Cutoff pro Beispiel).
     """

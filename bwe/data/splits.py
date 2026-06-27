@@ -22,7 +22,7 @@ from pathlib import Path
 
 from bwe import config as cfg
 
-VALID_SPLITS = ("train", "valid", "test")
+SPLIT_NAMES = ("train", "valid", "test")   # gültige Split-Bezeichner (nicht der „valid"-Split!)
 
 # Die kanonischen 14 Validation-Tracks (Quelle: musdb/configs/mus.yaml).
 VALIDATION_TRACKS = frozenset({
@@ -64,8 +64,8 @@ def _collect(track_dir: Path) -> dict:
 
 def get_split(split: str, root: Path | None = None) -> list[TrackInfo]:
     """Tracks eines Splits ∈ {'train','valid','test'} als Liste von :class:`TrackInfo`."""
-    if split not in VALID_SPLITS:
-        raise ValueError(f"split muss aus {VALID_SPLITS} sein, war {split!r}")
+    if split not in SPLIT_NAMES:
+        raise ValueError(f"split muss aus {SPLIT_NAMES} sein, war {split!r}")
 
     data_root = Path(root) if root is not None else cfg.DATA_ROOT
     subset = "test" if split == "test" else "train"
@@ -87,7 +87,7 @@ def get_split(split: str, root: Path | None = None) -> list[TrackInfo]:
 
 def all_splits(root: Path | None = None) -> dict:
     """{'train': [...], 'valid': [...], 'test': [...]} — bequem für Checks/Reports."""
-    return {s: get_split(s, root=root) for s in VALID_SPLITS}
+    return {s: get_split(s, root=root) for s in SPLIT_NAMES}
 
 
 if __name__ == "__main__":

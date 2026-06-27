@@ -35,7 +35,7 @@ def main() -> int:
     all_tracks = SP.all_splits()
     problems: list[str] = []
 
-    for split in SP.VALID_SPLITS:
+    for split in SP.SPLIT_NAMES:
         tracks = all_tracks[split]
         print(f"[{split}]  {len(tracks)} Tracks  (Vollsatz erwartet: {EXPECTED_FULL[split]})")
         for t in tracks:
@@ -61,7 +61,7 @@ def main() -> int:
         print()
 
     # Disjunktheit
-    names = {s: {t.name for t in all_tracks[s]} for s in SP.VALID_SPLITS}
+    names = {s: {t.name for t in all_tracks[s]} for s in SP.SPLIT_NAMES}
     if names["train"] & names["test"]:
         problems.append(f"train∩test nicht leer: {names['train'] & names['test']}")
     if names["train"] & names["valid"]:

@@ -1,7 +1,8 @@
 """Audio-Lader für Notebooks/Demos — bewusst getrennt von der tf.data-Pipeline.
 
-Ein Track-Ausschnitt als **Mono-Mix** (Summe der vier Stems, optional normiert).
-Vereinheitlicht die früher in den Notebooks duplizierten Lade-Helfer.
+Eine Funktion :func:`load_demo` lädt einen Track-Ausschnitt als Mono-Wellenform.
+Über ``stems`` wählt man, was überlagert wird: ``"mix"`` (alle vier Stems = der
+Mix) oder ein einzelner Stem bzw. eine beliebige Kombination.
 """
 
 from __future__ import annotations
@@ -10,26 +11,18 @@ import numpy as np
 import soundfile as sf
 
 from bwe import config as cfg
-from bwe.data.splits import TrackInfo, get_split
+from bwe.data.splits import get_split
 
 
-def load_mix(
-    track: TrackInfo,
-    seconds: float = 6.0,
-    offset: float = 0.0,
-    normalize: bool = True,
-) -> np.ndarray:
-    """Mono-Mix-Ausschnitt (Summe der Stems) eines Tracks als ``float32``-Wellenform."""
-    n, start = int(seconds * cfg.SR), int(offset * cfg.SR)
-    mix = None
-    for stem in cfg.STEMS:
-        data, _ = sf.read(str(track.stems[stem]), start=start, frames=n,
-                          always_2d=True, dtype="float32")
-        mono = data.mean(axis=1)
-        mix = mono if mix is None else mix + mono
-    if normalize:
-        mix = mix / max(1e-9, float(np.max(np.abs(mix))))
-    return mix.astype(np.float32)
+def _resolve_stems(stems) -> tuple[str, ...]:
+    """``stems`` -> Tupel gültiger Stem-Namen. ``"mix"`` = alle Stems."""
+    if stems == "mix":
+        return cfg.STEMS
+    sel = (stems,) if isinstance(stems, str) else tuple(stems)
+    unknown = [s for s in sel if s not in cfg.STEMS]
+    if unknown:
+        raise ValueError(f"Unbekannte Stems {unknown}; erlaubt: {cfg.STEMS} oder 'mix'")
+    return sel
 
 
 def load_demo(
@@ -37,8 +30,30 @@ def load_demo(
     index: int = 0,
     seconds: float = 6.0,
     offset: float = 10.0,
+    stems="mix",
     normalize: bool = True,
 ):
-    """Bequeme Variante: Track per ``(split, index)`` wählen. Gibt ``(name, wave)`` zurück."""
-    track = get_split(split)[index]
-    return track.name, load_mix(track, seconds, offset, normalize)
+    """Lädt einen Mono-Ausschnitt eines Tracks. Gibt ``(name, wave)`` zurück.
+
+    Parameters
+    ----------
+    split, index : Track per Split (``get_split`` validiert ``split``) und Position.
+    seconds, offset : Länge und Startzeit des Ausschnitts in Sekunden.
+    stems : ``"mix"`` (alle Stems überlagert), ein Stem-Name (z. B. ``"drums"``)
+        oder eine Kombination (z. B. ``("drums", "bass")``).
+    normalize : auf Spitzenpegel 1 normieren.
+    """
+    track = get_split(split)[index]              # get_split prüft split ∈ SPLIT_NAMES
+    sel = _resolve_stems(stems)
+
+    n, start = int(seconds * cfg.SR), int(offset * cfg.SR)
+    wave = None
+    for stem in sel:
+        data, _ = sf.read(str(track.stems[stem]), start=start, frames=n,
+                          always_2d=True, dtype="float32")
+        mono = data.mean(axis=1)
+        wave = mono if wave is None else wave + mono
+
+    if normalize:
+        wave = wave / max(1e-9, float(np.max(np.abs(wave))))
+    return track.name, wave.astype(np.float32)

@@ -13,7 +13,7 @@ pytestmark = pytest.mark.skipif(not _HAS_DATA, reason="32-kHz-Cache fehlt (prepa
 
 
 def test_splits_disjoint():
-    names = {s: {t.name for t in SP.get_split(s)} for s in SP.VALID_SPLITS}
+    names = {s: {t.name for t in SP.get_split(s)} for s in SP.SPLIT_NAMES}
     assert names["train"].isdisjoint(names["test"])
     assert names["train"].isdisjoint(names["valid"])
     assert names["valid"].isdisjoint(names["test"])

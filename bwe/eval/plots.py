@@ -29,11 +29,20 @@ def logmag(wave, eps: float = 1e-6) -> np.ndarray:
 
 
 def show_spec(ax, x, title: str = "", vmin: float = -80, vmax: float = 20,
-              draw_cutoff: bool = True):
-    """Ein Spektrogramm-Panel zeichnen. ``x`` = Wellenform oder Spektrogramm."""
+              draw_cutoff: bool = True, bin_range=None):
+    """Ein Spektrogramm-Panel zeichnen. ``x`` = Wellenform oder Spektrogramm.
+
+    ``bin_range=(lo, hi)`` zeigt nur diesen Frequenz-Bin-Bereich (für den Zoom).
+    """
     S = to_db(x)
+    if bin_range is not None:
+        lo, hi = bin_range
+        S = S[lo:hi]
+        y0, y1 = lo * cfg.FREQ_RES / 1000, hi * cfg.FREQ_RES / 1000
+    else:
+        y0, y1 = 0.0, cfg.SR / 2 / 1000
     im = ax.imshow(S, origin="lower", aspect="auto", vmin=vmin, vmax=vmax,
-                   extent=[0, S.shape[1], 0, cfg.SR / 2 / 1000])
+                   extent=[0, S.shape[1], y0, y1])
     if draw_cutoff:
         ax.axhline(cfg.CUTOFF_HZ / 1000, color="w", lw=0.8, ls="--")
     ax.set_title(title); ax.set_xlabel("Frame"); ax.set_ylabel("kHz")
@@ -60,12 +69,9 @@ def crossover_zoom(
     vmin: float = -80, vmax: float = 20,
 ):
     """Zoom um den Cutoff (die „Naht"). Ohne Cutoff-Linie — sie würde die Naht verdecken."""
-    lo, hi = cutoff_bin - half_bins, cutoff_bin + half_bins
+    rng = (cutoff_bin - half_bins, cutoff_bin + half_bins)
     fig, ax = plt.subplots(1, 2, figsize=(11, 4), sharey=True)
     for a, x, ttl in zip(ax, (panel_a, panel_b), titles):
-        S = to_db(x)[lo:hi]
-        a.imshow(S, origin="lower", aspect="auto", vmin=vmin, vmax=vmax,
-                 extent=[0, S.shape[1], lo * cfg.FREQ_RES / 1000, hi * cfg.FREQ_RES / 1000])
-        a.set_title(ttl); a.set_xlabel("Frame"); a.set_ylabel("kHz")
+        show_spec(a, x, ttl, vmin, vmax, draw_cutoff=False, bin_range=rng)
     fig.tight_layout()
     return fig
