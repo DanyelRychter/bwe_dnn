@@ -11,8 +11,13 @@ bekommt fehlende **hohe Frequenzen** zurück. Aufbau in Stufen:
 ## Status
 
 **Phase A (DSP-Infrastruktur) — fertig & getestet.** STFT-Kette, Power-Law-Kompression,
-Bandbegrenzung, Copy-Up und die `tf.data`-Pipeline stehen, alle mit Mini-Tests
-(20 Tests grün). Training (Regression/GAN) folgt in späteren Phasen auf Kaggle.
+Bandbegrenzung, Copy-Up und die `tf.data`-Pipeline stehen, alle mit Mini-Tests.
+
+**Phase B (Copy-Up-Baseline + Evaluation) — fertig & getestet.** End-to-End-
+Rekonstruktion, Metriken (LSD-HF, SI-SDR) und Präsentations-Plots stehen
+(zusammen 31 Tests grün). Training (Regression/GAN) folgt in späteren Phasen auf
+Kaggle. Baseline-Referenz: Copy-Up senkt die LSD-HF drastisch, verschlechtert aber
+die SI-SDR — die „Metrik vs. Ohr"-Divergenz zeigt sich schon hier.
 
 ## Projektstruktur
 
@@ -28,12 +33,18 @@ bwe/
     splits.py          # kanonischer 86/14/50-Split (eigenständig, ohne ffmpeg)
     augment.py         # Stem-Remix, Gain, Polarität (auf dem Target)
     pipeline.py        # tf.data: Pfade+Split -> gepaarte Spektrogramme
+  infer/
+    reconstruct.py     # Copy-Up-Baseline End-to-End (Audio -> Rekonstruktion)
+  eval/
+    metrics.py         # LSD-HF (Hauptzahl), SI-SDR
+    plots.py           # Spektrogramm-Tripel, Crossover-Zoom
   tests/               # Mini-Tests pro Baustein
 scripts/
   prepare_sample.py    # Sample-Tracks aus der ZIP -> 32-kHz-Cache (ohne Vollentpacken)
   check_dataset.py     # Struktur-/Integritätscheck des Caches
 notebooks/
-  01_dsp.ipynb         # schlanke DSP-Demo (Round-Trip, Bandlimit, Copy-Up)
+  01_dsp.ipynb             # schlanke DSP-Demo (Round-Trip, Bandlimit, Copy-Up)
+  02_copyup_baseline.ipynb # Copy-Up-Baseline: Tripel, Audio, LSD-HF/SI-SDR
 ```
 
 ## Setup
