@@ -14,10 +14,15 @@ bekommt fehlende **hohe Frequenzen** zurück. Aufbau in Stufen:
 Bandbegrenzung, Copy-Up und die `tf.data`-Pipeline stehen, alle mit Mini-Tests.
 
 **Phase B (Copy-Up-Baseline + Evaluation) — fertig & getestet.** End-to-End-
-Rekonstruktion, Metriken (LSD-HF, SI-SDR) und Präsentations-Plots stehen
-(zusammen 31 Tests grün). Training (Regression/GAN) folgt in späteren Phasen auf
-Kaggle. Baseline-Referenz: Copy-Up senkt die LSD-HF drastisch, verschlechtert aber
-die SI-SDR — die „Metrik vs. Ohr"-Divergenz zeigt sich schon hier.
+Rekonstruktion, Metriken (LSD-HF, SI-SDR) und Präsentations-Plots. Baseline-Referenz:
+Copy-Up senkt die LSD-HF drastisch, verschlechtert aber die SI-SDR — die
+„Metrik vs. Ohr"-Divergenz zeigt sich schon hier.
+
+**Phase C (komplexe Regression, Stufe 1) — Code fertig & lokal abgesichert.** 2D-U-Net-
+Generator, RI+Mag-Loss (HF-maskiert) + Splicing, Keras-Trainingsloop mit Checkpointing/
+Resume. Pipeline um deterministischen Val/Test-Modus + On-the-fly-Resampling (für Kaggle)
+erweitert. Lokaler Overfit-ein-Batch-Test besteht. **Subset-/Volltraining läuft auf Kaggle**
+(`notebooks/kaggle_train_regression.ipynb`).
 
 ## Projektstruktur
 
@@ -32,19 +37,28 @@ bwe/
   data/
     splits.py          # kanonischer 86/14/50-Split (eigenständig, ohne ffmpeg)
     augment.py         # Stem-Remix, Gain, Polarität (auf dem Target)
-    pipeline.py        # tf.data: Pfade+Split -> gepaarte Spektrogramme
+    loaders.py         # load_demo: Track-Ausschnitt (mix/Stems) für Notebooks
+    pipeline.py        # tf.data: Train (Augment) + Val/Test (deterministisch) + Resample
+  models/
+    generator.py       # 2D-U-Net-Generator (voll-faltend, Zeit-Pad/Crop)
+  losses.py            # splice (LF original / HF Modell) + RI+Mag-Loss (HF)
+  train/
+    regression.py      # Stufe-1-Training (Keras-Subklasse; overfit/subset/full)
+    checkpointing.py   # BackupAndRestore/ModelCheckpoint/CSVLogger/EarlyStopping
   infer/
-    reconstruct.py     # Copy-Up-Baseline End-to-End (Audio -> Rekonstruktion)
+    reconstruct.py     # Copy-Up- + Modell-Rekonstruktion (Audio -> Rekonstruktion)
   eval/
-    metrics.py         # LSD-HF (Hauptzahl), SI-SDR
+    metrics.py         # LSD-HF (Welle + spektral), SI-SDR
     plots.py           # Spektrogramm-Tripel, Crossover-Zoom
   tests/               # Mini-Tests pro Baustein
 scripts/
   prepare_sample.py    # Sample-Tracks aus der ZIP -> 32-kHz-Cache (ohne Vollentpacken)
   check_dataset.py     # Struktur-/Integritätscheck des Caches
 notebooks/
-  01_dsp.ipynb             # schlanke DSP-Demo (Round-Trip, Bandlimit, Copy-Up)
-  02_copyup_baseline.ipynb # Copy-Up-Baseline: Tripel, Audio, LSD-HF/SI-SDR
+  01_dsp.ipynb                 # DSP-Demo (Round-Trip, Bandlimit, Copy-Up)
+  02_copyup_baseline.ipynb     # Copy-Up-Baseline: Tripel, Audio, LSD-HF/SI-SDR
+  03_regression.ipynb          # Stufe 1: Architektur + Ergebnisse (nach Kaggle)
+  kaggle_train_regression.ipynb # Regressions-Training auf Kaggle (GPU)
 ```
 
 ## Setup

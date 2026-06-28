@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+import soundfile as sf
 
 from bwe import config as cfg
 from bwe.data import splits as SP
@@ -78,10 +79,10 @@ def test_downmix_modes():
     """mean/left/right liefern je ein Mono-Signal; L und R unterscheiden sich (Stereo)."""
     path = str(SP.get_split("train")[0].stems[cfg.STEMS[0]])
     for mode in PL.DOWNMIX_MODES:
-        w = PL._read_crop_mono(path, 0, cfg.SEG_SAMPLES, mode)
+        w = PL._read_crop_mono(path, 0, cfg.SEG_SAMPLES, mode, cfg.SR)
         assert w.ndim == 1 and w.shape[0] == cfg.SEG_SAMPLES
-    left = PL._read_crop_mono(path, 0, cfg.SEG_SAMPLES, "left")
-    right = PL._read_crop_mono(path, 0, cfg.SEG_SAMPLES, "right")
+    left = PL._read_crop_mono(path, 0, cfg.SEG_SAMPLES, "left", cfg.SR)
+    right = PL._read_crop_mono(path, 0, cfg.SEG_SAMPLES, "right", cfg.SR)
     assert not np.array_equal(left, right)
 
 
@@ -93,3 +94,24 @@ def test_variable_cutoff_pipeline_runs():
     assert tuple(inp.shape) == (2, cfg.N_BINS_NET, cfg.SEG_FRAMES, 3)
     assert tuple(tgt.shape) == (2, cfg.N_BINS_NET, cfg.SEG_FRAMES, 2)
     assert np.all(np.isfinite(inp.numpy())) and np.all(np.isfinite(tgt.numpy()))
+
+
+def test_eval_dataset_is_deterministic():
+    """Zwei Durchläufe des Val-Datasets liefern identische Batches (feste Segmente)."""
+    a = next(iter(PL.make_eval_dataset("valid", segments_per_track=2, batch_size=2)))
+    b = next(iter(PL.make_eval_dataset("valid", segments_per_track=2, batch_size=2)))
+    assert np.array_equal(a[0].numpy(), b[0].numpy())
+    assert np.array_equal(a[1].numpy(), b[1].numpy())
+    assert tuple(a[0].shape[1:]) == (cfg.N_BINS_NET, cfg.SEG_FRAMES, 3)
+
+
+def test_resample_path_yields_32k_length(tmp_path):
+    """44,1-kHz-Datei (Kaggle-Fall): On-the-fly-Resampling ergibt exakt SEG_SAMPLES @ 32 kHz."""
+    sr = 44_100
+    n = int(2.0 * sr)
+    t = np.arange(n) / sr
+    x = (0.3 * np.sin(2 * np.pi * 1000 * t)).astype(np.float32)
+    p = tmp_path / "tone_44k.wav"
+    sf.write(str(p), np.stack([x, x], axis=1), sr, subtype="PCM_16")
+    w = PL._read_crop_mono(str(p), 0, PL._seg_native(sr), "mean", sr)
+    assert w.shape[0] == cfg.SEG_SAMPLES and w.dtype == np.float32

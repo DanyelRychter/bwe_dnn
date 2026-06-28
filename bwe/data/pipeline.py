@@ -1,26 +1,26 @@
 """tf.data-Pipeline: Track-Pfade + Split → gepaarte Spektrogramme (Streaming).
 
-Pro Schritt (lazy, überlappt mit dem Training):
-  Track wählen → je Stem **Zufalls-Crop** an zufälligem Frame-Offset via
-  ``soundfile`` (nicht den ganzen Track laden) → **Mono-Downmix** → Augmentation
-  auf dem Target → ``bandlimit`` (= Input) → STFT beider → ``compress`` →
-  ``drop_nyquist`` → ``copy_up_hf`` (nur Input) → Re/Im stapeln + Freq-Koord-Kanal.
+Zwei Varianten:
+* **Train** (:func:`make_dataset`): Shuffle + Augmentation + Zufalls-Crops, ``repeat``.
+* **Val/Test** (:func:`make_eval_dataset`): **deterministisch** — feste, gleichmäßig
+  verteilte Segmente pro Track, ohne Shuffle/Repeat/Augmentation → reproduzierbare Zahl.
 
-Ausgabe je Beispiel: ``(input_spec [512, T, 3], target_spec [512, T, 2])`` mit
-``T = SEG_FRAMES``.
+Pro Beispiel: Track wählen → je Stem Crop via ``soundfile`` (Frame-Offset) → **Mono-
+Downmix** → (Augmentation) → ``bandlimit`` → STFT beider → ``compress`` → ``drop_nyquist`` →
+``copy_up_hf`` (nur Input) → Re/Im stapeln + Freq-Koord-Kanal.
+Ausgabe je Beispiel: ``(input_spec [512, T, 3], target_spec [512, T, 2])`` mit ``T = SEG_FRAMES``.
 
-Augmentationen (nur bei ``augment=True``):
-* **Kanalwahl** ``mean`` / ``left`` / ``right`` — statt nur ``(L+R)/2`` werden auch
-  L und R einzeln als Mono-Signal genutzt (≈ verdreifacht die „Sichten" je Crop).
-  Für ein Beispiel gilt EINE Wahl für alle Stems (sonst inkohärenter Mix).
-* **Variabler Cutoff** — pro Beispiel ein zufälliger Cutoff aus ``cfg.CUTOFFS_HZ``.
-  Bei nur einem Eintrag (Default 8 kHz) ändert sich nichts; weitere Werte dort
-  eintragen genügt. (Echtes Multi-Cutoff-Training: zusätzlich Masken-Kanal, v2.)
-* **Crop-Offset / Stem-Remix / Gain / Polarität** — siehe ``augment.py``.
+**On-the-fly-Resampling:** Ist die native Samplerate ≠ ``cfg.SR`` (z. B. 44,1-kHz-MUSDB18-HQ
+auf Kaggle), wird der Crop in nativen Frames gelesen und mit soxr auf 32 kHz resampelt — derselbe
+Code läuft so lokal (32-kHz-Cache = No-op) und auf Kaggle.
+
+Augmentationen (nur Train): Kanalwahl mean/left/right, Stem-Remix/Gain/Polarität (``augment.py``),
+variabler Cutoff (``cfg.CUTOFFS_HZ``), wechselnder Crop-Offset.
 """
 
 from __future__ import annotations
 
+import librosa
 import numpy as np
 import soundfile as sf
 import tensorflow as tf
@@ -42,42 +42,55 @@ _FREQ_COORD = tf.cast(tf.linspace(0.0, 1.0, cfg.N_BINS_NET), tf.float32)[:, tf.n
 # --------------------------------------------------------------------------- #
 # Audio-Laden (Python, läuft via tf.numpy_function)
 # --------------------------------------------------------------------------- #
-def _read_crop_mono(path: str, start: int, length: int, mode: str = "mean") -> np.ndarray:
-    """Liest nur ``[start:start+length]`` und reduziert zu Mono ``[length]``.
+def _seg_native(sr: int) -> int:
+    """Crop-Länge in nativen Frames, die nach Resampling ~SEG_SAMPLES @ cfg.SR ergibt."""
+    return cfg.SEG_SAMPLES if sr == cfg.SR else int(np.ceil(cfg.SEG_SAMPLES * sr / cfg.SR))
 
-    ``mode``: ``mean`` = (L+R)/2, ``left`` = Kanal 0, ``right`` = letzter Kanal.
-    """
+
+def _read_crop_mono(path: str, start: int, length: int, mode: str, sr: int) -> np.ndarray:
+    """Crop (native Frames) → Mono-Downmix → Resample auf cfg.SR → exakt SEG_SAMPLES."""
     data, _ = sf.read(path, start=start, frames=length, always_2d=True, dtype="float32")
     if mode == "left":
         mono = data[:, 0]
     elif mode == "right":
         mono = data[:, -1]
-    else:  # mean
+    else:
         mono = data.mean(axis=1)
-    if mono.shape[0] < cfg.SEG_SAMPLES:
-        mono = np.pad(mono, (0, cfg.SEG_SAMPLES - mono.shape[0]))
+    if sr != cfg.SR:
+        mono = librosa.resample(mono, orig_sr=sr, target_sr=cfg.SR, res_type="soxr_hq")
+    seg = cfg.SEG_SAMPLES
+    mono = mono[:seg] if mono.shape[0] >= seg else np.pad(mono, (0, seg - mono.shape[0]))
     return mono.astype(np.float32)
 
 
-def _make_loader(tracks: list[TrackInfo], augment: bool, cutoff_bins: list[int]):
-    """Erzeugt eine Python-Funktion ``idx -> (target_wave [SEG_SAMPLES], cutoff_bin)``."""
+def _read_target(paths_i, start, length, sr, augment, rng) -> np.ndarray:
+    """Alle Stems eines Tracks lesen und zum (ggf. augmentierten) Target mischen."""
+    mode = str(rng.choice(DOWNMIX_MODES)) if augment else "mean"
+    stems = {s: _read_crop_mono(p, start, length, mode, sr) for s, p in zip(cfg.STEMS, paths_i)}
+    return augment_target(stems, rng=rng, enabled=augment)
+
+
+def _track_paths_info(tracks: list[TrackInfo]):
     paths = [[str(t.stems[s]) for s in cfg.STEMS] for t in tracks]
-    nframes = [sf.info(p[0]).frames for p in paths]
-    seg = cfg.SEG_SAMPLES
+    infos = [sf.info(p[0]) for p in paths]
+    srs = [int(i.samplerate) for i in infos]
+    nframes = [int(i.frames) for i in infos]
+    return paths, srs, nframes
+
+
+def _make_random_loader(tracks, augment: bool, cutoff_bins: list[int]):
+    """idx -> (target_wave [SEG_SAMPLES], cutoff_bin) mit Zufalls-Crop (Train)."""
+    paths, srs, nframes = _track_paths_info(tracks)
 
     def _load(idx):
         i = int(idx)
-        rng = np.random.default_rng()  # bei jedem Zugriff neuer Crop/Mix
-        n = nframes[i]
-        start = 0 if n <= seg else int(rng.integers(0, n - seg + 1))
-        length = min(seg, n)
-        mode = str(rng.choice(DOWNMIX_MODES)) if augment else "mean"
-        stems = {
-            s: _read_crop_mono(p, start, length, mode)
-            for s, p in zip(cfg.STEMS, paths[i])
-        }
-        target = augment_target(stems, rng=rng, enabled=augment)
-        cb = int(rng.choice(cutoff_bins)) if len(cutoff_bins) > 1 else cutoff_bins[0]
+        rng = np.random.default_rng()                 # neuer Crop/Mix bei jedem Zugriff
+        sr, n = srs[i], nframes[i]
+        seg_native = _seg_native(sr)
+        start = 0 if n <= seg_native else int(rng.integers(0, n - seg_native + 1))
+        length = min(seg_native, n)
+        target = _read_target(paths[i], start, length, sr, augment, rng)
+        cb = int(rng.choice(cutoff_bins)) if len(cutoff_bins) > 1 else int(cutoff_bins[0])
         return target, np.int32(cb)
 
     return _load
@@ -112,30 +125,34 @@ def waveform_to_tensors(target_wave: tf.Tensor, cutoff_bin=cfg.CUTOFF_BIN):
     freq = tf.tile(_FREQ_COORD[:, tf.newaxis, :], [1, t, 1])   # [512, T, 1]
     input_spec = tf.concat([ri_in, freq], axis=-1)            # [512, T, 3]
 
-    input_spec.set_shape([cfg.N_BINS_NET, cfg.SEG_FRAMES, 3])
-    target_spec.set_shape([cfg.N_BINS_NET, cfg.SEG_FRAMES, 2])
+    input_spec.set_shape([cfg.N_BINS_NET, cfg.SEG_FRAMES, cfg.N_INPUT_CHANNELS])
+    target_spec.set_shape([cfg.N_BINS_NET, cfg.SEG_FRAMES, cfg.N_OUTPUT_CHANNELS])
     return input_spec, target_spec
 
 
 # --------------------------------------------------------------------------- #
-# Öffentliche API
+# Öffentliche API — Train
 # --------------------------------------------------------------------------- #
 def make_dataset(
     split: str,
-    batch_size: int = 8,
+    batch_size: int = cfg.BATCH_SIZE,
     augment: bool | None = None,
     cutoffs=None,
     shuffle: bool = True,
     repeat: bool = True,
     seed: int = cfg.SEED,
+    shuffle_buffer: int | None = None,
+    limit: int | None = None,
 ) -> tf.data.Dataset:
-    """tf.data.Dataset, der gepaarte Spektrogramme streamt.
+    """Train-Dataset: gepaarte Spektrogramme, Shuffle + Augmentation + Zufalls-Crops.
 
-    ``augment=None`` → an für 'train', aus für 'valid'/'test' (Test-Disziplin).
-    ``cutoffs=None`` → ``cfg.CUTOFFS_HZ``; bei mehreren Werten zieht jeder Trainings-
-    schritt zufällig einen, sonst/aus → der erste (deterministisch).
+    ``augment=None`` → an für 'train', aus sonst. ``cutoffs=None`` → ``cfg.CUTOFFS_HZ``;
+    mehrere Werte = variabler Cutoff pro Beispiel (sonst/aus → der erste).
+    ``limit`` schneidet auf die ersten N Tracks (Subset-First-Training).
     """
     tracks = get_split(split)
+    if limit is not None:
+        tracks = tracks[:limit]
     if not tracks:
         raise RuntimeError(f"Keine Tracks für Split {split!r} unter {cfg.DATA_ROOT}")
     if augment is None:
@@ -143,20 +160,19 @@ def make_dataset(
     cutoffs = cfg.CUTOFFS_HZ if cutoffs is None else cutoffs
     cutoff_bins = [cfg.cutoff_bin_for(hz) for hz in cutoffs]
     if not augment:
-        cutoff_bins = cutoff_bins[:1]                # eval: fester (Standard-)Cutoff
+        cutoff_bins = cutoff_bins[:1]
 
-    loader = _make_loader(tracks, augment, cutoff_bins)
+    loader = _make_random_loader(tracks, augment, cutoff_bins)
 
     ds = tf.data.Dataset.from_tensor_slices(np.arange(len(tracks)))
     if shuffle:
-        ds = ds.shuffle(len(tracks), seed=seed, reshuffle_each_iteration=True)
+        ds = ds.shuffle(shuffle_buffer or len(tracks), seed=seed,
+                        reshuffle_each_iteration=True)
     if repeat:
         ds = ds.repeat()
 
     def _map(idx):
-        wave, cb = tf.numpy_function(
-            loader, [idx], [tf.float32, tf.int32], name="load_target"
-        )
+        wave, cb = tf.numpy_function(loader, [idx], [tf.float32, tf.int32], name="load_target")
         wave = tf.ensure_shape(wave, [cfg.SEG_SAMPLES])
         return waveform_to_tensors(wave, cb)
 
@@ -167,11 +183,76 @@ def make_dataset(
     )
 
 
-def sample_target(
-    split: str, track_index: int = 0, augment: bool = False
-) -> np.ndarray:
+# --------------------------------------------------------------------------- #
+# Öffentliche API — Val/Test (deterministisch)
+# --------------------------------------------------------------------------- #
+def _eval_segments(srs, nframes, segments_per_track):
+    """Feste (track_idx, start_native)-Paare: gleichmäßig über jeden Track verteilt."""
+    pairs = []
+    for i, (sr, n) in enumerate(zip(srs, nframes)):
+        seg_native = _seg_native(sr)
+        if n <= seg_native:
+            starts = [0]
+        else:
+            starts = np.linspace(0, n - seg_native, segments_per_track).astype(int).tolist()
+        pairs.extend((i, int(s)) for s in starts)
+    return pairs
+
+
+def make_eval_dataset(
+    split: str,
+    segments_per_track: int = cfg.VAL_SEGMENTS_PER_TRACK,
+    batch_size: int = cfg.BATCH_SIZE,
+    cutoff_hz: int = cfg.CUTOFF_HZ,
+    limit: int | None = None,
+) -> tf.data.Dataset:
+    """Deterministisches Val/Test-Dataset: feste Segmente, keine Augmentation, fester Cutoff."""
+    tracks = get_split(split)
+    if limit is not None:
+        tracks = tracks[:limit]
+    if not tracks:
+        raise RuntimeError(f"Keine Tracks für Split {split!r} unter {cfg.DATA_ROOT}")
+    paths, srs, nframes = _track_paths_info(tracks)
+    pairs = _eval_segments(srs, nframes, segments_per_track)
+    cutoff_bin = cfg.cutoff_bin_for(cutoff_hz)
+
+    def _load(idx, start):
+        i, s = int(idx), int(start)
+        length = min(_seg_native(srs[i]), nframes[i] - s)
+        return _read_target(paths[i], s, length, srs[i], augment=False,
+                            rng=np.random.default_rng(0))
+
+    ds = tf.data.Dataset.from_tensor_slices(np.asarray(pairs, dtype=np.int64))
+
+    def _map(pair):
+        wave = tf.numpy_function(_load, [pair[0], pair[1]], tf.float32, name="eval_load")
+        wave = tf.ensure_shape(wave, [cfg.SEG_SAMPLES])
+        return waveform_to_tensors(wave, cutoff_bin)
+
+    return ds.map(_map, num_parallel_calls=tf.data.AUTOTUNE).batch(batch_size).prefetch(
+        tf.data.AUTOTUNE
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Hilfen
+# --------------------------------------------------------------------------- #
+def steps_per_epoch_for(split: str = "train", batch_size: int = cfg.BATCH_SIZE,
+                        limit: int | None = None) -> int:
+    """≈ Gesamtdauer_train / (B · Segmentlänge) — im Mittel jede Sekunde ~1×/Epoche."""
+    tracks = get_split(split)
+    if limit is not None:
+        tracks = tracks[:limit]
+    total = 0.0
+    for t in tracks:
+        info = sf.info(str(t.stems[cfg.STEMS[0]]))
+        total += info.frames * cfg.SR / info.samplerate        # in 32-k-Samples
+    return max(1, int(total / (batch_size * cfg.SEG_SAMPLES)))
+
+
+def sample_target(split: str, track_index: int = 0, augment: bool = False) -> np.ndarray:
     """Ein einzelnes Target-Wellenform-Beispiel (für Notebook/Tests)."""
     tracks = get_split(split)
-    loader = _make_loader(tracks, augment, [cfg.CUTOFF_BIN])
+    loader = _make_random_loader(tracks, augment, [cfg.CUTOFF_BIN])
     wave, _ = loader(track_index)
     return wave

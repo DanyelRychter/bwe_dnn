@@ -87,6 +87,39 @@ DATA_ROOT: Path = Path(
 # MUSDB18-Stems (mixture wird als Summe der Stems rekonstruiert)
 STEMS: tuple[str, ...] = ("vocals", "drums", "bass", "other")
 
+# --------------------------------------------------------------------------- #
+# Generator (2D-U-Net)
+# --------------------------------------------------------------------------- #
+N_INPUT_CHANNELS: int = 3                       # Re, Im, Freq-Koord (+1 Cutoff-Maske = v2)
+N_OUTPUT_CHANNELS: int = 2                       # Re, Im (linear)
+UNET_CHANNELS: tuple[int, ...] = (32, 64, 128, 256)   # 4 Ebenen; Stride-2 je Ebene
+LEAKY_SLOPE: float = 0.2
+
+# --------------------------------------------------------------------------- #
+# Loss (RI+Mag, nur HF)
+# --------------------------------------------------------------------------- #
+W_RE: float = 1.0
+W_IM: float = 1.0
+W_MAG: float = 1.0                               # Magnitudenterm (evtl. leicht höher testen)
+LOSS_EPS: float = 1e-8
+
+# --------------------------------------------------------------------------- #
+# Training
+# --------------------------------------------------------------------------- #
+BATCH_SIZE: int = 16                            # Kaggle/GPU; lokal kleiner setzen
+LR: float = 2e-4                                 # Adam
+ADAM_BETA_1: float = 0.9                         # Regression (GAN nutzt 0.5)
+EPOCHS: int = 100                                # mit EarlyStopping
+EARLY_STOP_PATIENCE: int = 12
+VAL_SEGMENTS_PER_TRACK: int = 4                  # feste Segmente je Val/Test-Track
+# steps_per_epoch wird zur Laufzeit aus Gesamtdauer/(B·Seg) berechnet (None = auto)
+STEPS_PER_EPOCH = None
+
+# Checkpoints/Logs bewusst AUSSERHALB von OneDrive (Schreibsperren/Resume).
+CKPT_ROOT: Path = Path(
+    os.environ.get("BWE_CKPT_ROOT", str(Path.home() / "bwe_runs"))
+)
+
 SEED: int = 1234
 
 
