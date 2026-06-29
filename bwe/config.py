@@ -111,7 +111,7 @@ LR: float = 2e-4                                 # Adam
 ADAM_BETA_1: float = 0.9                         # Regression (GAN nutzt 0.5)
 EPOCHS: int = 100                                # mit EarlyStopping
 EARLY_STOP_PATIENCE: int = 12
-VAL_SEGMENTS_PER_TRACK: int = 4                  # feste Segmente je Val/Test-Track
+VAL_SEGMENTS_PER_TRACK: int = 8                  # feste Segmente je Val/Test-Track (dichte Abdeckung)
 # steps_per_epoch wird zur Laufzeit aus Gesamtdauer/(B·Seg) berechnet (None = auto)
 STEPS_PER_EPOCH = None
 

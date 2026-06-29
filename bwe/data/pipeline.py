@@ -206,7 +206,12 @@ def make_eval_dataset(
     cutoff_hz: int = cfg.CUTOFF_HZ,
     limit: int | None = None,
 ) -> tf.data.Dataset:
-    """Deterministisches Val/Test-Dataset: feste Segmente, keine Augmentation, fester Cutoff."""
+    """Deterministisches Val/Test-Dataset: feste Segmente, keine Augmentation, fester Cutoff.
+
+    Deckt **alle** Tracks ab (je ``segments_per_track`` gleichmäßig verteilte Segmente,
+    kurze Tracks ≥1). Keras validiert pro Epoche über das *gesamte* Dataset → der
+    Val-Wert mittelt über alle Tracks, nicht über einen einzelnen Batch.
+    """
     tracks = get_split(split)
     if limit is not None:
         tracks = tracks[:limit]
