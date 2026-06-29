@@ -76,6 +76,9 @@ def build_model(lr: float = cfg.LR, beta_1: float = cfg.ADAM_BETA_1,
                 cutoff_hz: int = cfg.CUTOFF_HZ) -> RegressionModel:
     model = RegressionModel(cutoff_bin=cfg.cutoff_bin_for(cutoff_hz))
     model.compile(optimizer=keras.optimizers.Adam(learning_rate=lr, beta_1=beta_1))
+    # Modell bauen (Variablen anlegen) — BackupAndRestore verlangt ein gebautes
+    # Modell VOR fit(); ein Dummy-Forward-Pass erledigt das (voll-faltend → Shape egal).
+    model(tf.zeros((1, cfg.N_BINS_NET, cfg.SEG_FRAMES, cfg.N_INPUT_CHANNELS)))
     return model
 
 
