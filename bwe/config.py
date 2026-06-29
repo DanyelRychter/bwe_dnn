@@ -104,6 +104,22 @@ W_MAG: float = 1.0                               # Magnitudenterm (evtl. leicht 
 LOSS_EPS: float = 1e-8
 
 # --------------------------------------------------------------------------- #
+# Diskriminator (PatchGAN) + GAN (Stufe 2)
+# --------------------------------------------------------------------------- #
+DISC_CHANNELS: tuple[int, ...] = (64, 128, 256)  # 3× Conv2D-s2 (kein BatchNorm im D)
+DISC_USE_SPECTRAL_NORM: bool = True              # Spectral Norm stabilisiert das D-Training
+
+# GAN-Loss-Gewichte (Leitfaden §10: L_recon dominant ≈1, λ_adv klein, λ_fm mittel).
+# Startwerte zum Festklopfen auf dem Subset (Schritt 15).
+LAMBDA_ADV: float = 0.05                          # 0.01–0.1
+LAMBDA_FM: float = 10.0                           # 1–10 (höher = stabilisierend)
+
+GAN_LR: float = 2e-4                              # Adam (G und D)
+GAN_BETA_1: float = 0.5                           # GAN-typisch (Regression nutzt 0.9)
+GAN_D_WARMUP_STEPS: int = 300                     # Diskriminator-Vorlauf, G eingefroren
+GAN_N_CRITIC: int = 1                             # D-Updates je G-Update (1:1 reicht meist)
+
+# --------------------------------------------------------------------------- #
 # Training
 # --------------------------------------------------------------------------- #
 BATCH_SIZE: int = 16                            # Kaggle/GPU; lokal kleiner setzen

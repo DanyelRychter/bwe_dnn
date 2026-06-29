@@ -57,3 +57,39 @@ def ri_mag_loss(
     return (w_re * masked_l1(re_p, re_t)
             + w_im * masked_l1(im_p, im_t)
             + w_mag * masked_l1(mag_p, mag_t))
+
+
+# --------------------------------------------------------------------------- #
+# GAN-Terme (Stufe 2) — Vanilla-BCE auf den Patch-Logits (Spectral Norm → kein
+# Sigmoid im Diskriminator, daher ``from_logits``).
+# --------------------------------------------------------------------------- #
+def _bce_logits(labels, logits):
+    """Gemittelte Binary-Cross-Entropy direkt auf Logits (numerisch stabil)."""
+    logits = tf.convert_to_tensor(logits)
+    labels = tf.cast(labels, logits.dtype)
+    return tf.reduce_mean(
+        tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits)
+    )
+
+
+def discriminator_loss(real_logits, fake_logits):
+    """``bce(1, echt) + bce(0, fake)`` — der Diskriminator trennt echtes von generiertem HF."""
+    return (_bce_logits(tf.ones_like(real_logits), real_logits)
+            + _bce_logits(tf.zeros_like(fake_logits), fake_logits))
+
+
+def generator_adv_loss(fake_logits):
+    """``bce(1, fake)`` — der Generator will, dass der Diskriminator „echt" sagt."""
+    return _bce_logits(tf.ones_like(fake_logits), fake_logits)
+
+
+def feature_matching_loss(feats_real, feats_fake):
+    """Mittlerer L1-Abstand der Diskriminator-Zwischenaktivierungen (echt vs. fake).
+
+    Stabilisiert das Generator-Training: zieht die Statistik der generierten Ausgabe
+    schichtweise an die echte heran, ohne den (zickigen) reinen Adversarial-Gradienten.
+    ``feats_real``/``feats_fake``: gleich lange Listen von Aktivierungstensoren.
+    """
+    terms = [tf.reduce_mean(tf.abs(tf.cast(r, f.dtype) - f))
+             for r, f in zip(feats_real, feats_fake)]
+    return tf.add_n(terms) / float(len(terms))
