@@ -50,15 +50,18 @@ def lsd_hf_spec(pred_spec, target_spec, cutoff_bin: int = cfg.CUTOFF_BIN,
                 c: float = cfg.COMPRESS_C, eps: float = 1e-8) -> tf.Tensor:
     """LSD-HF direkt aus **komprimierten** Re/Im-Spektren ``[...,F,T,2]`` (in dB).
 
-    Schnelle Trainings-/Val-Metrik ohne iSTFT: die rohe Log-Magnitude ist
-    ``(1/c)·log|S_komprimiert|`` (Power-Law), daher Skalierung ``20/c``. Gibt einen
-    Skalar-Tensor zurück (für Keras-Metriken)."""
+    Schnelle Trainings-/Val-Metrik ohne iSTFT. Die komprimierte Magnitude wird erst
+    **entkomprimiert** (``|S| = |S_c|^(1/c)``) und dann wie bei :func:`lsd_hf`
+    (Wellenform) als ``20·log10`` gemessen — so ist die Zahl mit der Wellenform-Metrik
+    vergleichbar (frühere Variante blähte über ``20/c`` den eps-Boden leiser HF-Bins auf).
+    Gibt einen Skalar-Tensor zurück (für Keras-Metriken)."""
     pred_spec = tf.convert_to_tensor(pred_spec)
     target_spec = tf.cast(target_spec, pred_spec.dtype)
-    mp = tf.sqrt(tf.square(pred_spec[..., 0]) + tf.square(pred_spec[..., 1]) + eps)
-    mt = tf.sqrt(tf.square(target_spec[..., 0]) + tf.square(target_spec[..., 1]) + eps)
-    scale = 20.0 / c
-    sq = tf.square(scale * (_log10(mp + eps) - _log10(mt + eps)))     # [..., F, T]
+    mp = tf.sqrt(tf.square(pred_spec[..., 0]) + tf.square(pred_spec[..., 1]))
+    mt = tf.sqrt(tf.square(target_spec[..., 0]) + tf.square(target_spec[..., 1]))
+    mp = tf.pow(mp, 1.0 / c)                                          # zurück zur Roh-Magnitude
+    mt = tf.pow(mt, 1.0 / c)
+    sq = tf.square(20.0 * _log10(mp + eps) - 20.0 * _log10(mt + eps))  # [..., F, T]
     m = _hf_mask_col(tf.shape(sq)[-2], cutoff_bin, sq.dtype)          # [F, 1]
     per_frame = tf.sqrt(tf.reduce_sum(sq * m, axis=-2) / (tf.reduce_sum(m) + eps))
     return tf.reduce_mean(per_frame)
