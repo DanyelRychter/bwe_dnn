@@ -53,21 +53,25 @@ def log_stop_reason(history, callback_list: list, epochs: int) -> None:
 
     So ist auf einen Blick erkennbar, ob der Lauf sauber per EarlyStopping/regulär endete
     oder verdächtig früh (möglicher Abbruch). ``history`` ist das ``fit()``-Ergebnis.
+
+    Metrik-agnostisch und resume-fest: die zuletzt erreichte Epoche kommt aus
+    ``history.epoch`` (echte Epochennummer inkl. ``initial_epoch``) — funktioniert für die
+    Regression *und* fürs GAN (das keine ``loss``-Metrik und kein EarlyStopping hat).
     """
     es = next((c for c in callback_list
                if isinstance(c, keras.callbacks.EarlyStopping)), None)
-    ran = len(history.history.get("loss", []))
+    last_epoch = (history.epoch[-1] + 1) if getattr(history, "epoch", None) else 0
     if es is not None and es.stopped_epoch > 0:
         best = getattr(es, "best", float("nan"))
         print(f"\n>>> EarlyStopping: Lauf SAUBER beendet — gestoppt nach Epoche "
               f"{es.stopped_epoch + 1} (bestes {es.monitor} = {best:.4f}, beste Gewichte "
               f"wiederhergestellt). <<<")
-    elif ran >= epochs:
-        print(f"\n>>> Training regulär beendet: alle {epochs} Epochen durchlaufen "
-              f"(kein EarlyStopping). <<<")
+    elif last_epoch >= epochs:
+        print(f"\n>>> Training regulär beendet: Ziel-Epoche {epochs} erreicht"
+              f"{' (kein EarlyStopping)' if es is not None else ''}. <<<")
     else:
-        print(f"\n>>> ACHTUNG: Training endete nach {ran}/{epochs} Epochen OHNE "
-              f"EarlyStopping-Signal — Log auf Fehler/Abbruch prüfen. <<<")
+        print(f"\n>>> ACHTUNG: Training endete nach Epoche {last_epoch}/{epochs} OHNE "
+              f"sauberes Stop-Signal — Log auf Fehler/Abbruch prüfen. <<<")
 
 
 class GANCheckpoint(keras.callbacks.Callback):

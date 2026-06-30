@@ -118,6 +118,12 @@ GAN_LR: float = 2e-4                              # Adam (G und D)
 GAN_BETA_1: float = 0.5                           # GAN-typisch (Regression nutzt 0.9)
 GAN_D_WARMUP_STEPS: int = 300                     # Diskriminator-Vorlauf, G eingefroren
 GAN_N_CRITIC: int = 1                             # D-Updates je G-Update (1:1 reicht meist)
+# Eigene Batch/Epochen fürs GAN (Daten-/Eval-Parameter wie VAL_SEGMENTS_PER_TRACK und
+# CKPT_ROOT bleiben mit der Regression geteilt → faire Regression-vs-GAN-Vergleichbarkeit).
+GAN_BATCH_SIZE: int = 16                          # zwei Netze/Step → bei OOM kleiner setzen
+GAN_EPOCHS: int = 60                              # Feintuning ab Warm-Start braucht weniger als from-scratch
+# Kein EarlyStopping/LR-Plateau im GAN: g_loss ist kein Qualitätsmaß, val_lsd_hf schwankt →
+# volle Epochen fahren, finales Modell per Val-LSD-HF + Reinhören wählen.
 
 # --------------------------------------------------------------------------- #
 # Training

@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
+from pathlib import Path
 
 os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
@@ -183,7 +185,7 @@ def overfit_one_batch(steps: int = 400, batch_size: int = 4, log_every: int = 25
 
 
 def train(run: str = "gan", mode: str = "full", warm_start: str | None = None,
-          batch_size: int = cfg.BATCH_SIZE, epochs: int = cfg.EPOCHS,
+          batch_size: int = cfg.GAN_BATCH_SIZE, epochs: int = cfg.GAN_EPOCHS,
           limit: int | None = None, d_warmup: int = cfg.GAN_D_WARMUP_STEPS):
     """Adversariales Feintuning mit D-Vorlauf, deterministischem Val + GAN-Checkpointing."""
     if limit is None and mode == "subset":
@@ -199,13 +201,60 @@ def train(run: str = "gan", mode: str = "full", warm_start: str | None = None,
         pretrain_discriminator(model, train_ds, d_warmup)
 
     csv = keras.callbacks.CSVLogger(str(CK.run_dir(run) / "log.csv"), append=True)
+    cbs = [ckpt, csv]
     hist = model.fit(train_ds, validation_data=val_ds, epochs=epochs,
                      initial_epoch=ckpt.initial_epoch, steps_per_epoch=spe,
-                     callbacks=[ckpt, csv], verbose=2)
+                     callbacks=cbs, verbose=2)
+    CK.log_stop_reason(hist, cbs, epochs)            # Abschlussgrund explizit ins Log
     # End-Gewichte sichern (G für Inferenz/Notebook, D für etwaiges Curriculum-Warm-Start).
     model.generator.save_weights(str(CK.run_dir(run) / "generator.weights.h5"))
     model.discriminator.save_weights(str(CK.run_dir(run) / "discriminator.weights.h5"))
     return model, hist
+
+
+def train_resumable(run: str = "gan_full", mode: str = "full", warm_start=None,
+                    ckpt_src=None, **kw):
+    """Cold-Start, Generator-Warm-Start oder exaktes Resume — je nach ``ckpt_src``.
+
+    Macht das Voll-Notebook im **Commit-Modus** out-of-the-box (top-to-bottom, ohne einzelne
+    Zellen erneut auszuführen). Anders als bei der Regression liegt der exakte GAN-Zustand
+    im eigenen ``tf.train.Checkpoint`` unter ``ckpt/`` (G, D, beide Optimizer, Epoche).
+
+    * ``ckpt_src=None`` → **Cold-Start**; ``warm_start`` (Phase-C-Generator) wie übergeben.
+    * ``ckpt_src`` enthält ``ckpt/`` → **exaktes Resume**; der ganze Run-Ordner wird nach
+      ``cfg.CKPT_ROOT`` gespiegelt, ``GANCheckpoint`` setzt automatisch fort (D-Vorlauf
+      entfällt). ``warm_start`` wird ignoriert (der G-Zustand kommt aus ``ckpt/``).
+    * ``ckpt_src`` nur mit ``(best_)generator.weights.h5`` → **Generator-Warm-Start** daraus.
+
+    Das ``ckpt/`` stammt typischerweise aus dem **Output einer vorigen Commit-Version**
+    (Kaggle sichert ``/kaggle/working`` automatisch) — als Input anhängen und ``ckpt_src``
+    darauf zeigen.
+    """
+    rd = CK.run_dir(run)
+    if ckpt_src is None:
+        print("[resume] kein ckpt_src -> Cold-Start.")
+        return train(run=run, mode=mode, warm_start=warm_start, **kw)
+
+    ckpt_src = Path(ckpt_src)
+    if (ckpt_src / "ckpt").exists():
+        print(f"[resume] ckpt/ in {ckpt_src} gefunden -> exaktes Resume.")
+        for item in ckpt_src.iterdir():
+            dst = rd / item.name
+            if item.is_dir():
+                shutil.copytree(item, dst, dirs_exist_ok=True)
+            else:
+                shutil.copy(item, dst)
+        return train(run=run, mode=mode, warm_start=None, **kw)  # Zustand kommt aus ckpt/
+
+    gen = ckpt_src / "best_generator.weights.h5"
+    if not gen.exists():
+        gen = ckpt_src / "generator.weights.h5"
+    if gen.exists():
+        print(f"[resume] kein ckpt/, aber {gen.name} in {ckpt_src} -> Generator-Warm-Start.")
+        return train(run=run, mode=mode, warm_start=str(gen), **kw)
+
+    print(f"[resume] WARNUNG: {ckpt_src} ohne ckpt/ und generator.weights.h5 -> Cold-Start.")
+    return train(run=run, mode=mode, warm_start=warm_start, **kw)
 
 
 def main():
@@ -213,8 +262,8 @@ def main():
     ap.add_argument("--mode", choices=["overfit", "subset", "full"], default="overfit")
     ap.add_argument("--run", default="gan")
     ap.add_argument("--warm-start", default=None, help="Generator-Warm-Start (.weights.h5)")
-    ap.add_argument("--batch", type=int, default=cfg.BATCH_SIZE)
-    ap.add_argument("--epochs", type=int, default=cfg.EPOCHS)
+    ap.add_argument("--batch", type=int, default=cfg.GAN_BATCH_SIZE)
+    ap.add_argument("--epochs", type=int, default=cfg.GAN_EPOCHS)
     ap.add_argument("--steps", type=int, default=400, help="Overfit: Gesamt-Steps")
     ap.add_argument("--limit", type=int, default=None, help="nur N Tracks")
     ap.add_argument("--d-warmup", type=int, default=cfg.GAN_D_WARMUP_STEPS)
