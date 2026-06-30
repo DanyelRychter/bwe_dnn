@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
+from pathlib import Path
 
 os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
@@ -99,19 +101,68 @@ def overfit_one_batch(steps: int = 400, batch_size: int = 4, log_every: int = 25
 
 
 def train(run: str = "reg", mode: str = "full", batch_size: int = cfg.BATCH_SIZE,
-          epochs: int = cfg.EPOCHS, limit: int | None = None):
-    """Subset-/Voll-Training mit deterministischem Val + Checkpointing (Kaggle)."""
+          epochs: int = cfg.EPOCHS, limit: int | None = None,
+          init_weights=None):
+    """Subset-/Voll-Training mit deterministischem Val + Checkpointing (Kaggle).
+
+    ``init_weights`` (Pfad): vor dem Training die Gewichte laden → **Warm-Start** von
+    einem früheren Lauf (Adam-Momente/Epochenzähler starten neu).
+    """
     if limit is None and mode == "subset":
         limit = 20
     train_ds = PL.make_dataset("train", batch_size=batch_size, limit=limit)
     val_ds = PL.make_eval_dataset("valid", batch_size=batch_size, limit=limit)
     spe = PL.steps_per_epoch_for("train", batch_size, limit=limit)
     model = build_model()
+    if init_weights is not None:
+        model.load_weights(str(init_weights))
+        print(f"[warm-start] Gewichte geladen aus {init_weights}")
+    cbs = CK.callbacks(run)
     hist = model.fit(train_ds, validation_data=val_ds, epochs=epochs,
-                     steps_per_epoch=spe, callbacks=CK.callbacks(run), verbose=2)
+                     steps_per_epoch=spe, callbacks=cbs, verbose=2)
+    CK.log_stop_reason(hist, cbs, epochs)            # Abschlussgrund explizit ins Log
     # Generator-Gewichte separat sichern (Warm-Start für Phase D / Inferenz).
     model.generator.save_weights(str(CK.run_dir(run) / "generator.weights.h5"))
     return model, hist
+
+
+def train_resumable(run: str = "reg_full", mode: str = "full", ckpt_src=None, **kw):
+    """Cold-Start, Warm-Start oder exaktes Resume — je nach ``ckpt_src``.
+
+    Macht das Voll-Notebook im **Commit-Modus** out-of-the-box: das ganze Notebook läuft
+    top-to-bottom, ohne einzelne Zellen erneut auszuführen.
+
+    * ``ckpt_src=None`` → **Cold-Start** (von Null).
+    * ``ckpt_src`` enthält ``backup/`` → **exaktes Resume** (Optimizer + Epochenzähler via
+      ``BackupAndRestore``); der ganze Run-Ordner wird nach ``cfg.CKPT_ROOT`` gespiegelt.
+    * ``ckpt_src`` nur mit ``best.weights.h5`` → **Warm-Start**.
+
+    Das ``backup/`` stammt typischerweise aus dem **Output einer vorigen Commit-Version**
+    (Kaggle sichert ``/kaggle/working`` automatisch) — als Input anhängen und ``ckpt_src``
+    darauf zeigen.
+    """
+    rd = CK.run_dir(run)
+    if ckpt_src is None:
+        print("[resume] kein ckpt_src -> Cold-Start.")
+        return train(run=run, mode=mode, **kw)
+
+    ckpt_src = Path(ckpt_src)
+    if (ckpt_src / "backup").exists():
+        print(f"[resume] backup/ in {ckpt_src} gefunden -> exaktes Resume.")
+        for item in ckpt_src.iterdir():
+            dst = rd / item.name
+            if item.is_dir():
+                shutil.copytree(item, dst, dirs_exist_ok=True)
+            else:
+                shutil.copy(item, dst)
+        return train(run=run, mode=mode, **kw)
+
+    if (ckpt_src / "best.weights.h5").exists():
+        print(f"[resume] kein backup/, aber best.weights.h5 in {ckpt_src} -> Warm-Start.")
+        return train(run=run, mode=mode, init_weights=ckpt_src / "best.weights.h5", **kw)
+
+    print(f"[resume] WARNUNG: {ckpt_src} ohne backup/ und best.weights.h5 -> Cold-Start.")
+    return train(run=run, mode=mode, **kw)
 
 
 def main():

@@ -37,10 +37,37 @@ def callbacks(run_name: str, monitor: str = "val_lsd_hf",
             save_best_only=True, save_weights_only=True,
         ),
         keras.callbacks.CSVLogger(str(d / "log.csv"), append=True),
+        keras.callbacks.ReduceLROnPlateau(
+            monitor=monitor, mode="min", factor=cfg.LR_PLATEAU_FACTOR,
+            patience=cfg.LR_PLATEAU_PATIENCE, min_lr=cfg.LR_MIN, verbose=1,
+        ),
         keras.callbacks.EarlyStopping(
             monitor=monitor, mode="min", patience=patience, restore_best_weights=True,
+            verbose=1,                      # druckt zusätzlich Keras' "early stopping"-Zeile
         ),
     ]
+
+
+def log_stop_reason(history, callback_list: list, epochs: int) -> None:
+    """Schreibt den Abschlussgrund **explizit** ins Log (Commit-Modus: kein Nachsehen einzelner Zellen).
+
+    So ist auf einen Blick erkennbar, ob der Lauf sauber per EarlyStopping/regulär endete
+    oder verdächtig früh (möglicher Abbruch). ``history`` ist das ``fit()``-Ergebnis.
+    """
+    es = next((c for c in callback_list
+               if isinstance(c, keras.callbacks.EarlyStopping)), None)
+    ran = len(history.history.get("loss", []))
+    if es is not None and es.stopped_epoch > 0:
+        best = getattr(es, "best", float("nan"))
+        print(f"\n>>> EarlyStopping: Lauf SAUBER beendet — gestoppt nach Epoche "
+              f"{es.stopped_epoch + 1} (bestes {es.monitor} = {best:.4f}, beste Gewichte "
+              f"wiederhergestellt). <<<")
+    elif ran >= epochs:
+        print(f"\n>>> Training regulär beendet: alle {epochs} Epochen durchlaufen "
+              f"(kein EarlyStopping). <<<")
+    else:
+        print(f"\n>>> ACHTUNG: Training endete nach {ran}/{epochs} Epochen OHNE "
+              f"EarlyStopping-Signal — Log auf Fehler/Abbruch prüfen. <<<")
 
 
 class GANCheckpoint(keras.callbacks.Callback):

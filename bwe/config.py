@@ -123,17 +123,28 @@ GAN_N_CRITIC: int = 1                             # D-Updates je G-Update (1:1 r
 # Training
 # --------------------------------------------------------------------------- #
 BATCH_SIZE: int = 16                            # Kaggle/GPU; lokal kleiner setzen
-LR: float = 2e-4                                 # Adam
+LR: float = 2e-4                                 # Adam (Start-LR; ReduceLROnPlateau senkt sie)
 ADAM_BETA_1: float = 0.9                         # Regression (GAN nutzt 0.5)
 EPOCHS: int = 100                                # mit EarlyStopping
-EARLY_STOP_PATIENCE: int = 12
-VAL_SEGMENTS_PER_TRACK: int = 8                  # feste Segmente je Val/Test-Track (dichte Abdeckung)
+EARLY_STOP_PATIENCE: int = 18                    # gegen Stops auf dem verrauschten val_lsd_hf
+# ReduceLROnPlateau: senkt die LR, wenn val_lsd_hf stagniert (2. Abstieg). patience < Early-Stop,
+# damit die LR mehrfach fallen kann, bevor gestoppt wird.
+LR_PLATEAU_FACTOR: float = 0.5
+LR_PLATEAU_PATIENCE: int = 5
+LR_MIN: float = 1e-6
+VAL_SEGMENTS_PER_TRACK: int = 16                 # feste Segmente je Val/Test-Track (weniger Val-Rauschen)
 # steps_per_epoch wird zur Laufzeit aus Gesamtdauer/(B·Seg) berechnet (None = auto)
 STEPS_PER_EPOCH = None
 
-# Checkpoints/Logs bewusst AUSSERHALB von OneDrive (Schreibsperren/Resume).
+# Lokaler Default jetzt im Projektordner (OneDrive). Begründung: es laufen KEINE
+# lokalen Trainings (nur Kaggle), die Kaggle-Outputs werden hierher kopiert → keine
+# OneDrive-Schreibsperren (die nur beim Schreiben von BackupAndRestore/CSVLogger auftraten).
+# Auf Kaggle setzt das Notebook BWE_CKPT_ROOT=/kaggle/working/bwe_runs (Override).
 CKPT_ROOT: Path = Path(
-    os.environ.get("BWE_CKPT_ROOT", str(Path.home() / "bwe_runs"))
+    os.environ.get(
+        "BWE_CKPT_ROOT",
+        r"C:\Users\danyr\OneDrive\Dokumente\alfatraining\DeepLearning\Projektarbeit\bwe_runs",
+    )
 )
 
 SEED: int = 1234
