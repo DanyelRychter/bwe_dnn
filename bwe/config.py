@@ -121,7 +121,7 @@ GAN_N_CRITIC: int = 1                             # D-Updates je G-Update (1:1 r
 # Eigene Batch/Epochen fürs GAN (Daten-/Eval-Parameter wie VAL_SEGMENTS_PER_TRACK und
 # CKPT_ROOT bleiben mit der Regression geteilt → faire Regression-vs-GAN-Vergleichbarkeit).
 GAN_BATCH_SIZE: int = 16                          # zwei Netze/Step → bei OOM kleiner setzen
-GAN_EPOCHS: int = 90                              # Ziel-Epochen (Volllauf 1 lief bei 60 noch fallend → Resume auf 90)
+GAN_EPOCHS: int = 120                              # Ziel-Epochen (Volllauf 1 lief bei 60 noch fallend, Lauf 2 bei 90 auch → Resume auf 120)
 # Kein EarlyStopping/LR-Plateau im GAN: g_loss ist kein Qualitätsmaß, val_lsd_hf schwankt →
 # volle Epochen fahren, finales Modell per Val-LSD-HF + Reinhören wählen.
 
