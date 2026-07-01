@@ -75,3 +75,29 @@ def crossover_zoom(
         show_spec(a, x, ttl, vmin, vmax, draw_cutoff=False, bin_range=rng)
     fig.tight_layout()
     return fig
+
+
+def per_track_boxplots(df, metrics=("lsd_hf", "si_sdr"), method_order=None):
+    """Boxplots je Metrik über **alle Tracks** eines Splits, gruppiert nach Methode.
+
+    ``df`` = Long-Format aus :func:`bwe.eval.aggregate.evaluate_split` (Spalten
+    ``method`` + Metriken). Ein Panel je Metrik; pro Panel eine Box je Methode
+    (Copy-Up/Regression/GAN) — zeigt Streuung und Ausreißer, nicht nur den
+    Mittelwert der Aggregat-Tabelle.
+    """
+    from bwe.eval.aggregate import METRIC_LABELS
+
+    metrics = [m for m in metrics if m in df.columns]
+    methods = method_order or list(dict.fromkeys(df["method"]))
+    fig, axes = plt.subplots(1, len(metrics), figsize=(6 * len(metrics), 4))
+    axes = np.atleast_1d(axes)
+    for ax, metric in zip(axes, metrics):
+        data = [df.loc[df["method"] == m, metric].to_numpy() for m in methods]
+        ax.boxplot(data, showmeans=True)
+        ax.set_xticks(range(1, len(methods) + 1))
+        ax.set_xticklabels(methods)
+        ax.set_title(METRIC_LABELS.get(metric, metric))
+        ax.set_ylabel("dB")
+        ax.grid(axis="y", alpha=0.3)
+    fig.tight_layout()
+    return fig

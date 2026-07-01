@@ -6,8 +6,11 @@
 * **SI-SDR**: Scale-Invariant SDR auf der Wellenform. Bestraft die halluzinierte
   Phase generativer Modelle — die Divergenz zur LSD/zum Höreindruck ist die Pointe
   der Präsentation.
+* **SI-SDR-HF**: dasselbe, aber nach Hochpass beider Signale. Das Full-band-SI-SDR
+  wird vom identisch geteilten Real-LF dominiert und ist damit HF-blind; erst der
+  Hochpass macht die HF-Phasentreue sichtbar (Leitfaden §5.5).
 
-Beide arbeiten auf Wellenformen und richten unterschiedliche Längen vorher aus.
+Alle arbeiten auf Wellenformen und richten unterschiedliche Längen vorher aus.
 """
 
 from __future__ import annotations
@@ -15,7 +18,7 @@ from __future__ import annotations
 import tensorflow as tf
 
 from bwe import config as cfg
-from bwe.dsp.stft import stft
+from bwe.dsp.stft import istft, stft
 
 
 def _log10(x: tf.Tensor) -> tf.Tensor:
@@ -84,3 +87,26 @@ def si_sdr(pred_wave, target_wave, eps: float = 1e-8) -> float:
     noise = pred - proj
     ratio = tf.reduce_sum(proj * proj) / (tf.reduce_sum(noise * noise) + eps)
     return float(10.0 * _log10(ratio + eps))
+
+
+def _highpass(wave, cutoff_bin: int):
+    """Wellenform → nur HF behalten (``>= cutoff_bin``); komplementär zu ``bandlimit``."""
+    spec = stft(wave)                                    # [513, T] complex
+    keep = tf.cast(tf.range(tf.shape(spec)[0]) >= cutoff_bin, spec.dtype)
+    return istft(spec * keep[:, tf.newaxis])
+
+
+def si_sdr_hf(
+    pred_wave,
+    target_wave,
+    cutoff_bin: int = cfg.CUTOFF_BIN,
+    eps: float = 1e-8,
+) -> float:
+    """SI-SDR **nach Hochpass** beider Signale (in dB; größer = besser).
+
+    Schärferer HF-Sanity-Check: das Full-band-SI-SDR wird vom bit-genau geteilten
+    Real-LF dominiert (LF-Fehler ≈ 0, Energie LF-lastig) → HF-blind. Nach dem
+    Hochpass bleibt nur das rekonstruierte HF übrig, sodass die dekorrelierte,
+    halluzinierte GAN-Phase durchschlägt (Leitfaden §5.5).
+    """
+    return si_sdr(_highpass(pred_wave, cutoff_bin), _highpass(target_wave, cutoff_bin), eps)

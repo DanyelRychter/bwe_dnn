@@ -44,3 +44,16 @@ def test_si_sdr_worse_for_noise():
     rng = np.random.default_rng(2)
     noisy = (x + 0.5 * rng.standard_normal(len(x))).astype(np.float32)
     assert M.si_sdr(noisy, x) < M.si_sdr(x, x)
+
+
+def test_si_sdr_hf_finite_and_high_for_identical():
+    x = _sig()
+    v = M.si_sdr_hf(x, x)
+    assert np.isfinite(v) and v > 50                 # identisches HF -> sehr hoch
+
+
+def test_si_sdr_hf_worse_for_noise():
+    x = _sig()
+    rng = np.random.default_rng(5)
+    noisy = (x + 0.2 * rng.standard_normal(len(x))).astype(np.float32)
+    assert M.si_sdr_hf(noisy, x) < M.si_sdr_hf(x, x)

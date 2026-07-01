@@ -28,7 +28,7 @@ def _resolve_stems(stems) -> tuple[str, ...]:
 def load_demo(
     split: str = "train",
     index: int = 0,
-    seconds: float = 6.0,
+    seconds: float | None = 6.0,
     offset: float = 10.0,
     stems="mix",
     normalize: bool = True,
@@ -38,7 +38,8 @@ def load_demo(
     Parameters
     ----------
     split, index : Track per Split (``get_split`` validiert ``split``) und Position.
-    seconds, offset : Länge und Startzeit des Ausschnitts in Sekunden.
+    seconds, offset : Länge und Startzeit des Ausschnitts in Sekunden. ``seconds=None``
+        lädt den **ganzen** Track ab ``offset`` (für die Aggregat-Auswertung).
     stems : ``"mix"`` (alle Stems überlagert), ein Stem-Name (z. B. ``"drums"``)
         oder eine Kombination (z. B. ``("drums", "bass")``).
     normalize : auf Spitzenpegel 1 normieren.
@@ -46,7 +47,8 @@ def load_demo(
     track = get_split(split)[index]              # get_split prüft split ∈ SPLIT_NAMES
     sel = _resolve_stems(stems)
 
-    n, start = int(seconds * cfg.SR), int(offset * cfg.SR)
+    start = int(offset * cfg.SR)
+    n = -1 if seconds is None else int(seconds * cfg.SR)   # -1 = bis Trackende
     wave = None
     for stem in sel:
         data, _ = sf.read(str(track.stems[stem]), start=start, frames=n,

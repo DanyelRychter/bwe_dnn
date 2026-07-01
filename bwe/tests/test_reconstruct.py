@@ -40,3 +40,20 @@ def test_copyup_beats_bandlimited_input():
     x = _music()
     pred, inp = R.baseline_from_fullband(x)
     assert M.lsd_hf(pred, x) < M.lsd_hf(inp, x)      # Copy-Up verbessert LSD-HF
+
+
+def test_center_length_matches_input():
+    """center=True (Default) → Rekonstruktion ist genau so lang wie der Eingang."""
+    x = _music()
+    pred, inp = R.baseline_from_fullband(x)
+    assert int(len(pred)) == int(len(inp))
+
+
+def test_center_clean_edges():
+    """Ränder nicht durch Fensterung abgesenkt (Overlap-Add am Rand vollständig)."""
+    x = _music()
+    pred, _ = R.baseline_from_fullband(x)            # center=True
+    p = np.asarray(pred.numpy() if hasattr(pred, "numpy") else pred)
+    edge = np.sqrt(np.mean(p[: cfg.HOP] ** 2))
+    mid = np.sqrt(np.mean(p[len(p) // 2 - cfg.HOP: len(p) // 2 + cfg.HOP] ** 2))
+    assert edge > 0.3 * mid                          # kein starkes Rand-Fadeout
