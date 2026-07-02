@@ -77,34 +77,24 @@ def crossover_zoom(
     return fig
 
 
-def spectro_grid6(
-    target, band, cu, reg, gan,
-    vmin: float = -80, vmax: float = 20, diff_lim: float = 30.0,
+def spectro_grid4(
+    target, band, reg, gan,
+    vmin: float = -80, vmax: float = 20,
     suptitle: str | None = None,
 ):
-    """2×3-Raster für den Modellvergleich (Präsentation).
+    """2×2-Raster für den Modellvergleich (Präsentation).
 
-    Oben: Original / Bandbegrenzt / Copy-Up — unten: Regression / GAN /
-    Differenz GAN − Original (dB). Jedes Argument = Wellenform oder Spektrogramm.
-    Die Differenz nutzt eine divergierende Skala (rot = zu laut, blau = zu leise).
+    Oben: Original / Bandbegrenzt — unten: Regression / GAN. Jedes Argument =
+    Wellenform oder Spektrogramm. Eine gemeinsame dB-Colorbar rechts.
     """
-    fig, axes = plt.subplots(2, 3, figsize=(15, 8), sharey=True)
-    panels = [(target, "Original"), (band, "Bandbegrenzt (Input)"), (cu, "Copy-Up"),
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8), sharey=True)
+    panels = [(target, "Original"), (band, "Bandbegrenzt (Input)"),
               (reg, "Regression"), (gan, "GAN")]
     for ax, (x, ttl) in zip(axes.ravel(), panels):
         im = show_spec(ax, x, ttl, vmin, vmax)
     for ax in axes[0]:                      # x-Label nur unten (Titel-Kollision vermeiden)
         ax.set_xlabel("")
-    fig.colorbar(im, ax=axes[:, :2], label="dB")
-
-    ax = axes[1, 2]
-    d = to_db(gan) - to_db(target)
-    im2 = ax.imshow(d, origin="lower", aspect="auto", cmap="coolwarm",
-                    vmin=-diff_lim, vmax=diff_lim,
-                    extent=[0, d.shape[1], 0, cfg.SR / 2 / 1000])
-    ax.axhline(cfg.CUTOFF_HZ / 1000, color="k", lw=0.8, ls="--")
-    ax.set_title("Differenz GAN − Original"); ax.set_xlabel("Frame"); ax.set_ylabel("kHz")
-    fig.colorbar(im2, ax=axes[:, 2], label="Δ dB")
+    fig.colorbar(im, ax=axes, label="dB")
     if suptitle:
         fig.suptitle(suptitle)
     return fig

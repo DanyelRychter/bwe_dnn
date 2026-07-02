@@ -34,6 +34,14 @@ def test_load_demo_combination_sums_stems():
     assert np.allclose(both, drums + bass, atol=1e-5)
 
 
+def test_load_demo_offset_beyond_track_is_clamped():
+    # Offset weit hinter dem Track-Ende -> Start zurückgeschoben, KEIN leeres Array
+    # (früher: zero-size array -> ValueError bei der Normierung).
+    name, wave = L.load_demo("train", 0, seconds=2.0, offset=9999.0)
+    assert wave.shape[0] == int(2.0 * cfg.SR)      # volle Länge, vom Track-Ende geholt
+    assert float(np.max(np.abs(wave))) > 0
+
+
 def test_load_demo_bad_stem_raises():
     with pytest.raises(ValueError):
         L.load_demo("train", 0, stems="guitar")

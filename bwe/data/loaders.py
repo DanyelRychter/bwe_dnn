@@ -39,7 +39,11 @@ def load_demo(
     ----------
     split, index : Track per Split (``get_split`` validiert ``split``) und Position.
     seconds, offset : Länge und Startzeit des Ausschnitts in Sekunden. ``seconds=None``
-        lädt den **ganzen** Track ab ``offset`` (für die Aggregat-Auswertung).
+        lädt den **ganzen** Track ab ``offset`` (für die Aggregat-Auswertung). Ragt
+        ``offset`` (+ ``seconds``) über das Track-Ende hinaus, wird der Start so weit
+        zurückgeschoben, dass noch ``seconds`` Audio geliefert werden (bei kürzeren
+        Tracks der ganze Track) — sonst kämen bei kurzen Tracks (z. B. den
+        ``Music Delta``-Ausschnitten, ab 13 s) leere Arrays zurück.
     stems : ``"mix"`` (alle Stems überlagert), ein Stem-Name (z. B. ``"drums"``)
         oder eine Kombination (z. B. ``("drums", "bass")``).
     normalize : auf Spitzenpegel 1 normieren.
@@ -47,8 +51,14 @@ def load_demo(
     track = get_split(split)[index]              # get_split prüft split ∈ SPLIT_NAMES
     sel = _resolve_stems(stems)
 
+    track_len = sf.info(str(track.stems[sel[0]])).frames   # Stems sind gleich lang
     start = int(offset * cfg.SR)
-    n = -1 if seconds is None else int(seconds * cfg.SR)   # -1 = bis Trackende
+    if seconds is None:
+        n = -1                                             # bis Trackende
+        start = min(start, max(0, track_len - 1))          # nie hinter dem Ende starten
+    else:
+        n = int(seconds * cfg.SR)
+        start = min(start, max(0, track_len - n))          # Segment ins Track-Ende schieben
     wave = None
     for stem in sel:
         data, _ = sf.read(str(track.stems[stem]), start=start, frames=n,

@@ -20,6 +20,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import soundfile as sf
+
 from bwe import config as cfg
 
 SPLIT_NAMES = ("train", "valid", "test")   # gültige Split-Bezeichner (nicht der „valid"-Split!)
@@ -62,6 +64,17 @@ def _collect(track_dir: Path) -> dict:
     }
 
 
+def _stems_consistent(stems: dict) -> bool:
+    """True wenn alle Stem-Dateien exakt gleich viele Frames haben.
+
+    MUSDB18-Stems eines Tracks sind im Quellmaterial immer gleich lang; eine
+    Abweichung im 32-kHz-Cache bedeutet eine unvollständig geschriebene Datei
+    (z. B. abgebrochenes ``prepare_sample.py``), nicht einen kurzen Track.
+    """
+    frames = {sf.info(str(p)).frames for p in stems.values()}
+    return len(frames) == 1
+
+
 def get_split(split: str, root: Path | None = None) -> list[TrackInfo]:
     """Tracks eines Splits ∈ {'train','valid','test'} als Liste von :class:`TrackInfo`."""
     if split not in SPLIT_NAMES:
@@ -80,14 +93,39 @@ def get_split(split: str, root: Path | None = None) -> list[TrackInfo]:
         if split == "valid" and track_dir.name not in VALIDATION_TRACKS:
             continue
         stems = _collect(track_dir)
-        if all(s in stems for s in cfg.STEMS):       # nur vollständige Tracks
-            tracks.append(TrackInfo(name=track_dir.name, subset=subset, stems=stems))
+        if not all(s in stems for s in cfg.STEMS):    # unvollständiger Track
+            continue
+        if not _stems_consistent(stems):              # Cache-Defekt (Frame-Mismatch)
+            print(f"WARNUNG: {track_dir.name} übersprungen — "
+                  f"Stem-Dateien mit inkonsistenter Länge (Cache defekt)")
+            continue
+        tracks.append(TrackInfo(name=track_dir.name, subset=subset, stems=stems))
     return tracks
 
 
 def all_splits(root: Path | None = None) -> dict:
     """{'train': [...], 'valid': [...], 'test': [...]} — bequem für Checks/Reports."""
     return {s: get_split(s, root=root) for s in SPLIT_NAMES}
+
+
+def describe_split(split: str, root: Path | None = None):
+    """Track-Tabelle eines Splits: Name, Dauer (Sekunden/Samples), Samplerate.
+
+    Nutzt den ersten Stem (``cfg.STEMS[0]``) als Referenzlänge — nach dem
+    Integritätscheck in :func:`get_split` sind alle Stems eines Tracks gleich lang.
+    Für Notebook-Übersichten (Cache-Status, Präsentations-Material).
+    """
+    import pandas as pd
+
+    rows = []
+    for i, t in enumerate(get_split(split, root=root)):
+        info = sf.info(str(t.stems[cfg.STEMS[0]]))
+        rows.append({
+            "split": split, "index": i, "track": t.name,
+            "dauer_s": info.frames / info.samplerate,
+            "samples": info.frames, "sr_hz": info.samplerate,
+        })
+    return pd.DataFrame(rows)
 
 
 if __name__ == "__main__":
