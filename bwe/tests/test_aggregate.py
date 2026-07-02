@@ -46,3 +46,21 @@ def test_summary_shape():
     assert list(s.index) == ["Copy-Up"]
     assert "LSD-HF [dB]" in s.columns
     assert isinstance(s.loc["Copy-Up", "LSD-HF [dB]"], str)  # "mean ± std"
+
+
+def test_evaluate_split_include_input():
+    df = A.evaluate_split("valid", limit=1, seconds=1.0, include_input=True,
+                          hf_sisdr=False, verbose=False)
+    assert list(df["method"]) == ["Bandbegrenzt", "Copy-Up"]
+    # leeres HF-Band → LSD-HF des bandbegrenzten Signals ist riesig (eps-Boden)
+    lsd = df.set_index("method")["lsd_hf"]
+    assert lsd["Bandbegrenzt"] > lsd["Copy-Up"]
+
+
+def test_compare_splits_columns():
+    df = A.evaluate_split("valid", limit=2, seconds=1.0, hf_sisdr=False, verbose=False)
+    tbl = A.compare_splits({"a": df, "b": df})
+    # Metrik-major: beide Splits einer Metrik nebeneinander, Splits in Eingabereihenfolge
+    assert list(tbl.columns) == [("LSD-HF [dB]", "a"), ("LSD-HF [dB]", "b"),
+                                 ("SI-SDR [dB]", "a"), ("SI-SDR [dB]", "b")]
+    assert list(tbl.index) == ["Copy-Up"]

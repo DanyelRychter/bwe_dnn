@@ -44,6 +44,7 @@ def evaluate_split(
     offset: float = 0.0,
     limit: int | None = None,
     hf_sisdr: bool = True,
+    include_input: bool = False,
     verbose: bool = True,
 ) -> pd.DataFrame:
     """Rekonstruiert je Track jeden Ansatz und misst die Metriken.
@@ -57,6 +58,9 @@ def evaluate_split(
     offset : Startzeit je Track in Sekunden.
     limit : nur die ersten ``limit`` Tracks (Smoke-Test).
     hf_sisdr : zusätzlich SI-SDR-HF (Hochpass) messen.
+    include_input : zusätzlich das **bandbegrenzte Signal selbst** als Methode
+        ``"Bandbegrenzt"`` messen — zeigt, von welchem Niveau die Modelle starten
+        (LSD-HF ist dort riesig, weil das HF-Band leer ist).
 
     Returns
     -------
@@ -71,7 +75,10 @@ def evaluate_split(
     for i, track in enumerate(tracks):
         _, target = load_demo(split, i, seconds=seconds, offset=offset)
 
-        cu, _ = baseline_from_fullband(target)
+        cu, inp = baseline_from_fullband(target)
+        if include_input:
+            rows.append({"track": track.name, "method": "Bandbegrenzt",
+                         **_metrics_row(inp, target, hf_sisdr)})
         rows.append({"track": track.name, "method": "Copy-Up",
                      **_metrics_row(cu, target, hf_sisdr)})
 
@@ -100,3 +107,23 @@ def summary(df: pd.DataFrame) -> pd.DataFrame:
         mean, std = g[c].mean(), g[c].std()
         out[METRIC_LABELS[c]] = [f"{m:.2f} ± {s:.2f}" for m, s in zip(mean, std)]
     return pd.DataFrame(out, index=g[metric_cols[0]].mean().index)
+
+
+def compare_splits(dfs: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Vergleichstabelle über mehrere Splits (Overfitting-Analyse).
+
+    ``dfs`` = ``{"train": df_train, "valid": df_valid, "test": df_test}`` (Long-Format
+    aus :func:`evaluate_split`). Ergebnis: Zeilen = Methoden, Spalten = MultiIndex
+    ``(Metrik, Split)`` mit ``"mean ± std"``-Strings — Train/Valid/Test einer Metrik
+    stehen direkt nebeneinander. Liegen Train- und Test-Werte nah beieinander,
+    generalisiert das Modell (kein Overfitting auf die 86 Trainings-Tracks).
+    """
+    parts = {name: summary(df) for name, df in dfs.items()}
+    out = pd.concat(parts, axis=1, names=["Split", "Metrik"]).swaplevel(axis=1)
+    # Spaltenordnung explizit: Metrik-major, Splits in Eingabereihenfolge (train/valid/test)
+    metrics = [m for m in METRIC_LABELS.values()
+               if any(m in p.columns for p in parts.values())]
+    cols = pd.MultiIndex.from_tuples(
+        [(m, s) for m in metrics for s in dfs], names=["Metrik", "Split"]
+    )
+    return out.reindex(columns=cols)
